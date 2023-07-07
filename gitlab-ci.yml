@@ -1,0 +1,62 @@
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
+# Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
+# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
+
+# container_scanning:
+#   variables:
+#     DOCKER_IMAGE: ...
+#     DOCKER_USER: ...
+#     DOCKER_PASSWORD: ...
+stages:
+  - build
+  - test
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Container-Scanning.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+variables:
+  # name of the image for docker
+  CONTAINER_TEST_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  # settings for container scanning jobcontainer_scanning:
+  DOCKER_IMAGE: $CONTAINER_TEST_IMAGE
+  # DAST settings
+  DAST_WEBSITE: http://demoApp:8080/
+  # do a full scan
+  DAST_FULL_SCAN_ENABLED: "true"
+
+
+sast:
+  stage: test
+  artifacts:
+    paths:
+      - gl-sast-report.json
+      - gl-secret-detection-report.json
+
+# build container image
+build_image:
+  services:
+    - name: docker:dind
+      alias: dind
+  image: docker:20.10.16
+  stage: build
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - docker build --tag $CONTAINER_TEST_IMAGE --tag $CI_REGISTRY_IMAGE:latest .
+    - docker push $CONTAINER_TEST_IMAGE
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+container_scanning:
+  variables:
+    CS_IMAGE: $CONTAINER_TEST_IMAGE
+
+secret_detection:
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: "true"
+
